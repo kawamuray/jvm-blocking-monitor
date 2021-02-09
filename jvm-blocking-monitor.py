@@ -3,7 +3,7 @@
 # jvm-blocking-monitor.py Monitor JVM threads and prints stacktraces for long blocking threads.
 #               For Linux, uses BCC, eBPF.
 #
-# USAGE: jvm-blocking-monitor.py [-h] [-p PID | -u | -k] [-U | -K] [-f] [duration]
+# USAGE: jvm-blocking-monitor.py [-h] [-p PID | -u | -k] [-U | -K]
 #
 # Copyright 2021 Yuto Kawamura
 # Licensed under the Apache License, Version 2.0 (the "License")
@@ -54,49 +54,26 @@ def stack_id_err(stack_id):
 
 # arguments
 examples = """examples:
-    ./jvm-blocking-monitor.py             # trace off-CPU stack time until Ctrl-C
-    ./jvm-blocking-monitor.py 5           # trace for 5 seconds only
-    ./jvm-blocking-monitor.py -f 5        # 5 seconds, and output in folded format
-    ./jvm-blocking-monitor.py -m 1000     # trace only events that last more than 1000 usec
-    ./jvm-blocking-monitor.py -M 10000    # trace only events that last less than 10000 usec
-    ./jvm-blocking-monitor.py -p 185      # only trace threads for PID 185
-    ./jvm-blocking-monitor.py -t 188      # only trace thread 188
-    ./jvm-blocking-monitor.py -u          # only trace user threads (no kernel)
-    ./jvm-blocking-monitor.py -k          # only trace kernel threads (no user)
-    ./jvm-blocking-monitor.py -U          # only show user space stacks (no kernel)
-    ./jvm-blocking-monitor.py -K          # only show kernel space stacks (no user)
+    ./jvm-blocking-monitor.py -p JVM_PID -m 1000000 # monitor threads that blocks more than 10 seconds
 """
 parser = argparse.ArgumentParser(
-    description="Summarize off-CPU time by stack trace",
+    description="Monitor JVM threads and prints stacktraces for long blocking threads",
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=examples)
 thread_group = parser.add_mutually_exclusive_group()
 # Note: this script provides --pid and --tid flags but their arguments are
 # referred to internally using kernel nomenclature: TGID and PID.
 thread_group.add_argument("-p", "--pid", metavar="PID", dest="tgid",
-    help="trace this PID only", type=positive_int)
-thread_group.add_argument("-t", "--tid", metavar="TID", dest="pid",
-    help="trace this TID only", type=positive_int)
-thread_group.add_argument("-u", "--user-threads-only", action="store_true",
-    help="user threads only (no kernel threads)")
-thread_group.add_argument("-k", "--kernel-threads-only", action="store_true",
-    help="kernel threads only (no user threads)")
+    help="trace this PID only", type=positive_int, required=True)
 stack_group = parser.add_mutually_exclusive_group()
 stack_group.add_argument("-U", "--user-stacks-only", action="store_true",
     help="show stacks from user space only (no kernel space stacks)")
 stack_group.add_argument("-K", "--kernel-stacks-only", action="store_true",
     help="show stacks from kernel space only (no user space stacks)")
-parser.add_argument("-d", "--delimited", action="store_true",
-    help="insert delimiter between kernel/user stacks")
-parser.add_argument("-f", "--folded", action="store_true",
-    help="output folded format")
 parser.add_argument("--stack-storage-size", default=1024,
     type=positive_nonzero_int,
     help="the number of unique stack traces that can be stored and "
          "displayed (default 1024)")
-parser.add_argument("duration", nargs="?", default=99999999,
-    type=positive_nonzero_int,
-    help="duration of trace, in seconds")
 parser.add_argument("-m", "--min-block-time", default=1,
     type=positive_nonzero_int,
     help="the amount of time in microseconds over which we " +
@@ -113,8 +90,6 @@ parser.add_argument("--kernel3x", action="store_true",
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
 args = parser.parse_args()
-folded = args.folded
-duration = int(args.duration)
 debug = 0
 
 # define BPF program
@@ -193,22 +168,9 @@ FN_ONCPU {
 """
 
 # set thread filter
-thread_context = ""
-if args.tgid is not None:
-    thread_context = "PID %d" % args.tgid
-    thread_filter = 'tgid == %d' % args.tgid
-elif args.pid is not None:
-    thread_context = "TID %d" % args.pid
-    thread_filter = 'pid == %d' % args.pid
-elif args.user_threads_only:
-    thread_context = "user threads"
-    thread_filter = '!(prev->flags & PF_KTHREAD)'
-elif args.kernel_threads_only:
-    thread_context = "kernel threads"
-    thread_filter = 'prev->flags & PF_KTHREAD'
-else:
-    thread_context = "all threads"
-    thread_filter = '1'
+thread_context = "PID %d" % args.tgid
+thread_filter = 'tgid == %d' % args.tgid
+
 if args.state == 0:
     state_filter = 'prev->state == 0'
 elif args.state:
@@ -266,14 +228,8 @@ if matched == 0:
     print("error: 0 functions traced. Exiting.", file=stderr)
     exit(1)
 
-# header
-if not folded:
-    print("Tracing off-CPU time (us) of %s by %s stack" %
-        (thread_context, stack_context), end="")
-    if duration < 99999999:
-        print(" for %d secs." % duration)
-    else:
-        print("... Hit Ctrl-C to end.")
+print("Tracing off-CPU time (us) of %s by %s stack" %
+      (thread_context, stack_context), end="")
 
 class AsyncProfiler(object):
     def __init__(self, profiler_cmd_path, pid):
