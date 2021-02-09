@@ -25,7 +25,6 @@ import errno
 import signal
 import os
 import stat
-import signal
 import json
 from collections import namedtuple
 import tempfile
@@ -109,8 +108,8 @@ parser.add_argument("-M", "--max-block-time", default=(1 << 64) - 1,
 parser.add_argument("--state", type=positive_int,
     help="filter on this thread state bitmask (eg, 2 == TASK_UNINTERRUPTIBLE" +
          ") see include/linux/sched.h")
-parser.add_argument("--jstack", action="store_true",
-    help=argparse.SUPPRESS)
+parser.add_argument("--kernel3x", action="store_true",
+                    help="3.x kernel mode. Signal for JVMTI agent will be sent from user process + some kprobe function signature adjust")
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
 args = parser.parse_args()
@@ -141,9 +140,7 @@ BPF_STACK_TRACE(stack_traces, STACK_STORAGE_SIZE);
 
 BPF_PERF_OUTPUT(events);
 
-struct rq;
-
-int oncpu(struct pt_regs *ctx, struct rq *rq, struct task_struct *prev) {
+FN_ONCPU {
     u32 pid = prev->pid;
     u32 tgid = prev->tgid;
     u64 ts, *tsp, t_start;
@@ -189,6 +186,8 @@ int oncpu(struct pt_regs *ctx, struct rq *rq, struct task_struct *prev) {
     event.t_end = t_end;
 
     events.perf_submit(ctx, &event, sizeof(event));
+    # Signal target thread for taking call trace
+    SEND_SIGNAL_TO_TASK;
     return 0;
 }
 """
@@ -224,6 +223,13 @@ bpf_text = bpf_text.replace('STATE_FILTER', state_filter)
 bpf_text = bpf_text.replace('STACK_STORAGE_SIZE', str(args.stack_storage_size))
 bpf_text = bpf_text.replace('MINBLOCK_US_VALUE', str(args.min_block_time))
 bpf_text = bpf_text.replace('MAXBLOCK_US_VALUE', str(args.max_block_time))
+
+bpf_text = bpf_text.replace('FN_ONCPU',
+                            "struct rq;\nint oncpu(struct pt_regs *ctx, struct rq *rq, struct task_struct *prev)"
+                            if args.kernel3x else
+                            "int oncpu(struct pt_regs *ctx, struct task_struct *prev)");
+bpf_text = bpf_text.replace('SEND_SIGNAL_TO_TASK',
+                            "" if args.kernel3x else "bpf_send_signal_thread(27)");
 
 # handle stack args
 kernel_stack_get = "stack_traces.get_stackid(ctx, 0)"
@@ -425,7 +431,10 @@ def print_event(cpu, data, size):
     event = b["events"].event(data)
 
     # Signal target thread for taking call trace
-    os.kill(event.pid, signal.SIGPROF)
+    if args.kernel3x:
+        # In kernel before 5.x, bpf_send_signal_thread() isn't supported.
+        # Send signal from this process instead.
+        os.kill(event.pid, signal.SIGPROF)
 
     # user stacks will be symbolized by tgid, not pid, to avoid the overhead
     # of one symbol resolver per thread
