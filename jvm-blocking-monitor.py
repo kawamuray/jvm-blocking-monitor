@@ -60,10 +60,9 @@ parser = argparse.ArgumentParser(
     description="Monitor JVM threads and prints stacktraces for long blocking threads",
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=examples)
-thread_group = parser.add_mutually_exclusive_group()
 # Note: this script provides --pid and --tid flags but their arguments are
 # referred to internally using kernel nomenclature: TGID and PID.
-thread_group.add_argument("-p", "--pid", metavar="PID", dest="tgid",
+parser.add_argument("-p", "--pid", metavar="PID", dest="tgid",
     help="trace this PID only", type=positive_int, required=True)
 stack_group = parser.add_mutually_exclusive_group()
 stack_group.add_argument("-U", "--user-stacks-only", action="store_true",
@@ -161,7 +160,7 @@ FN_ONCPU {
     event.t_end = t_end;
 
     events.perf_submit(ctx, &event, sizeof(event));
-    # Signal target thread for taking call trace
+    // Signal target thread for taking call trace
     SEND_SIGNAL_TO_TASK;
     return 0;
 }
@@ -208,13 +207,6 @@ else:
 bpf_text = bpf_text.replace('USER_STACK_GET', user_stack_get)
 bpf_text = bpf_text.replace('KERNEL_STACK_GET', kernel_stack_get)
 
-# check for an edge case; the code below will handle this case correctly
-# but ultimately nothing will be displayed
-if args.kernel_threads_only and args.user_stacks_only:
-    print("ERROR: Displaying user stacks for kernel threads " +
-          "doesn't make sense.", file=stderr)
-    exit(1)
-
 if debug or args.ebpf:
     print(bpf_text)
     if args.ebpf:
@@ -228,8 +220,7 @@ if matched == 0:
     print("error: 0 functions traced. Exiting.", file=stderr)
     exit(1)
 
-print("Tracing off-CPU time (us) of %s by %s stack" %
-      (thread_context, stack_context), end="")
+print("Tracing off-CPU time (us) of %s by %s stack" % (thread_context, stack_context))
 
 class AsyncProfiler(object):
     def __init__(self, profiler_cmd_path, pid):
