@@ -1,0 +1,3 @@
+[submodule "async-profiler"]
+	path = async-profiler
+	url = git@github.com:kawamuray/async-profiler.git
