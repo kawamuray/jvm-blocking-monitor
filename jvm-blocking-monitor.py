@@ -129,7 +129,7 @@ FN_ONCPU {
     pid = bpf_get_current_pid_tgid();
     tgid = bpf_get_current_pid_tgid() >> 32;
     tsp = start.lookup(&pid);
-    if (tsp == 0) {
+    if (!tsp) {
         return 0;        // missed start or filtered
     }
     t_start = *tsp;
@@ -137,6 +137,11 @@ FN_ONCPU {
     // calculate current thread's delta time
     u64 t_end = bpf_ktime_get_ns();
     start.delete(&pid);
+    if (!(THREAD_FILTER)) {
+        // There's a possibility such a task id that previously belonged to tgid = 1234
+        // is now re-used and is a task id of a different process.
+        return 0;
+    }
     if (t_start > t_end) {
         return 0;
     }
