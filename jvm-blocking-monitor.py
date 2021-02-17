@@ -226,7 +226,7 @@ logger.setLevel(logging.INFO)
 if args.output == "-":
     handler = logging.StreamHandler(stream=stdout)
 else:
-    handler = logging.handlers.TimedRotatingFileHandler(args.output, when='m', interval=1, backupCount=14)
+    handler = logging.handlers.TimedRotatingFileHandler(args.output, when='d', interval=1, backupCount=14)
 logger.addHandler(handler)
 
 # initialize BPF
