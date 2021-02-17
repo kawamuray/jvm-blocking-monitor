@@ -18,7 +18,7 @@
 
 from __future__ import print_function
 from bcc import BPF
-from sys import stderr
+from sys import stderr, stdout
 from time import sleep, strftime, time, localtime
 import argparse
 import errno
@@ -29,6 +29,8 @@ import json
 from collections import namedtuple
 import tempfile
 from subprocess import Popen
+import logging
+import logging.handlers
 
 # arg validation
 def positive_int(val):
@@ -86,6 +88,8 @@ parser.add_argument("--state", type=positive_int,
          ") see include/linux/sched.h")
 parser.add_argument("--kernel3x", action="store_true",
                     help="3.x kernel mode. Signal for JVMTI agent will be sent from user process + some kprobe function signature adjust")
+parser.add_argument("-o", "--output", action="store", default="-",
+                    help="Base path of the file to output events")
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
 args = parser.parse_args()
@@ -217,6 +221,14 @@ if debug or args.ebpf:
     if args.ebpf:
         exit()
 
+logger = logging.getLogger("EventsOutput")
+logger.setLevel(logging.INFO)
+if args.output == "-":
+    handler = logging.StreamHandler(stream=stdout)
+else:
+    handler = logging.handlers.TimedRotatingFileHandler(args.output, when='m', interval=1, backupCount=14)
+logger.addHandler(handler)
+
 # initialize BPF
 b = BPF(text=bpf_text)
 b.attach_kprobe(event="finish_task_switch", fn_name="oncpu")
@@ -298,16 +310,18 @@ def trash_ap_event(ap_event):
         print("  {}: [0x{:x}] {}".format(i, frame['methodId'], frame['symbol']), file=stderr)
 
 def report_event(bpf_event, ap_event):
-    print("=== {} PID: {}, TID: {} ({}), DURATION: {} us".format(format_time(bpf_event.timestamp), bpf_event.pid, bpf_event.tid, bpf_event.comm, bpf_event.duration_us))
-    print("Native Stack:")
+    out = "=== {} PID: {}, TID: {} ({}), DURATION: {} us\n".format(format_time(bpf_event.timestamp), bpf_event.pid, bpf_event.tid, bpf_event.comm, bpf_event.duration_us)
+    out += "Native Stack:\n"
     for (i, frame) in enumerate(bpf_event.frames):
-        print("  {}: [0x{:x}] {}".format(i, frame.address, frame.symbol))
+        out += "  {}: [0x{:x}] {}\n".format(i, frame.address, frame.symbol)
     if ap_event:
-        print("--------------------------------------------------------------------------------")
-        print("JVM Stack (took: {}):".format(format_time(ap_event['timestamp'])))
+        out += "--------------------------------------------------------------------------------\n"
+        out += "JVM Stack (took: {}):\n".format(format_time(ap_event['timestamp']))
         for (i, frame) in enumerate(ap_event['frames']):
-            print("  {}: [0x{:x}] {}".format(i, frame['methodId'], frame['symbol']))
-
+            if i > 0:
+                out += "\n"
+            out += "  {}: [0x{:x}] {}".format(i, frame['methodId'], frame['symbol'])
+    logger.info(out)
 
 class EventQueues(object):
     def __init__(self):
