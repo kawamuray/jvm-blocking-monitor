@@ -429,11 +429,19 @@ def print_event(cpu, data, size):
 
 profiler_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "async-profiler", "profiler.sh")
 
+terminated = False
+def sig_handler(signum, frame):
+    global terminated
+    terminated = True
+
+for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
+    signal.signal(sig, sig_handler)
+
 with AsyncProfiler(profiler_bin, args.tgid) as ap,\
      AsyncProfileStream(ap.output_path()) as ap_stream:
 
      b["events"].open_perf_buffer(print_event)
-     while True:
+     while not terminated:
          try:
              b.perf_buffer_poll(timeout=100)
              event_queues.fill_ap_queue(ap_stream)
