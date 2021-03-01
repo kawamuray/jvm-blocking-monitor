@@ -239,6 +239,13 @@ if matched == 0:
 
 print("Tracing off-CPU time (us) of %s by %s stack" % (thread_context, stack_context))
 
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
 class AsyncProfiler(object):
     def __init__(self, profiler_cmd_path, pid):
         self.profiler_cmd_path = profiler_cmd_path
@@ -272,7 +279,8 @@ class AsyncProfiler(object):
         self.exec_profiler_cmd("start")
 
     def stop(self):
-        self.exec_profiler_cmd("stop")
+        if pid_alive(self.pid): # If the target PID has already gone, no need to stop
+            self.exec_profiler_cmd("stop")
         self.tmpfile.close()
 
 class AsyncProfileStream(object):
@@ -400,7 +408,10 @@ def print_event(cpu, data, size):
     if args.kernel3x:
         # In kernel before 5.x, bpf_send_signal_thread() isn't supported.
         # Send signal from this process instead.
-        os.kill(event.pid, signal.SIGPROF)
+        try:
+            os.kill(event.pid, signal.SIGPROF)
+        except OSError as e:
+            print("Failed to signal TID {}: {}".format(event.pid, e), file=stderr)
 
     # user stacks will be symbolized by tgid, not pid, to avoid the overhead
     # of one symbol resolver per thread
@@ -442,9 +453,9 @@ with AsyncProfiler(profiler_bin, args.tgid) as ap,\
 
      b["events"].open_perf_buffer(print_event)
      while not terminated:
-         try:
-             b.perf_buffer_poll(timeout=100)
-             event_queues.fill_ap_queue(ap_stream)
-             event_queues.sweep()
-         except KeyboardInterrupt:
-             break
+         if not pid_alive(args.tgid):
+             print("Quitting by absent target PID: {}".format(args.tgid), file=stderr)
+             exit(1)
+         b.perf_buffer_poll(timeout=100)
+         event_queues.fill_ap_queue(ap_stream)
+         event_queues.sweep()
