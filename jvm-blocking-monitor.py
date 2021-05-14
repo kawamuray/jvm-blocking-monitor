@@ -396,8 +396,10 @@ class EventQueues(object):
         
 stack_traces = b.get_table("stack_traces")
 
-
 event_queues = EventQueues()
+
+STACK_STORAGE_SIZE_CHECK_COUNT = 100
+event_count = 0
 
 def print_event(cpu, data, size):
     timestamp = int(time() * 1000)
@@ -438,6 +440,14 @@ def print_event(cpu, data, size):
 
     bpf_event = BpfEvent(timestamp=timestamp, pid=event.tgid, tid=event.pid, comm=event.name, duration_us=event.offtime, frames=frames)
     event_queues.add_bpf_event(bpf_event)
+
+    global event_count
+    event_count += 1
+    if event_count % STACK_STORAGE_SIZE_CHECK_COUNT == 0:
+        cur_size = len(stack_traces)
+        if cur_size >= args.stack_storage_size:
+            print("WARN: Stacktraces storage is full, some stacks may be missing in output: {}/{}"
+                  .format(cur_size, args.stack_storage_size), file=stderr)
 
 
 profiler_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "async-profiler", "profiler.sh")
