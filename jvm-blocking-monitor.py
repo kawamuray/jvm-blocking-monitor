@@ -426,13 +426,15 @@ def print_event(cpu, data, size):
             frames.append(StackFrame(address=0x0, symbol="[Missed Kernel Stack]"))
         else:
             for addr in kernel_stack:
-                frames.append(StackFrame(address=addr, symbol=b.ksym(addr).decode('utf-8', 'replace')))
+                symbol = b.ksym(addr, show_offset=True).decode('utf-8', 'replace')
+                frames.append(StackFrame(address=addr, symbol=symbol))
     if not args.kernel_stacks_only:
         if stack_id_err(event.user_stack_id):
             frames.append(StackFrame(address=0x0, symbol="[Missed User Stack]"))
         else:
             for addr in user_stack:
-                frames.append(StackFrame(address=addr, symbol=b.ksym(addr).decode('utf-8', 'replace')))
+                symbol = b.sym(addr, event.tgid, show_module=True, show_offset=True).decode('utf-8', 'replace')
+                frames.append(StackFrame(address=addr, symbol=symbol))
 
     bpf_event = BpfEvent(timestamp=timestamp, pid=event.tgid, tid=event.pid, comm=event.name, duration_us=event.offtime, frames=frames)
     event_queues.add_bpf_event(bpf_event)
