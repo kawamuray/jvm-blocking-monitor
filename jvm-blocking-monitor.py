@@ -90,6 +90,8 @@ parser.add_argument("--kernel3x", action="store_true",
                     help="3.x kernel mode. Signal for JVMTI agent will be sent from user process + some kprobe function signature adjust")
 parser.add_argument("-o", "--output", action="store", default="-",
                     help="Base path of the file to output events")
+parser.add_argument("--discarded-events-output", action="store", default="-",
+                    help="Base path of the file to output discarded events")
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
 args = parser.parse_args()
@@ -229,6 +231,14 @@ else:
     handler = logging.handlers.TimedRotatingFileHandler(args.output, when='d', interval=1, backupCount=14)
 logger.addHandler(handler)
 
+discarded_events_logger = logging.getLogger("DiscardedEventsOutput")
+discarded_events_logger.setLevel(logging.INFO)
+if args.discarded_events_output == "-":
+    handler = logging.StreamHandler(stream=stderr)
+else:
+    handler = logging.handlers.TimedRotatingFileHandler(args.discarded_events_output, when='d', interval=1, backupCount=14)
+discarded_events_logger.addHandler(handler)
+
 # initialize BPF
 b = BPF(text=bpf_text)
 b.attach_kprobe(event="finish_task_switch", fn_name="oncpu")
@@ -312,10 +322,12 @@ def format_time(t):
     return "{}.{}".format(strftime("%Y-%m-%d %H:%M:%S", localtime(t / 1000)), t % 1000)
 
 def trash_ap_event(ap_event):
-    # TODO: should go to a separate file?
-    print("{} DISCARDED AP EVENT TID: {}".format(format_time(ap_event['timestamp']), ap_event['tid']), file=stderr)
+    out = "{} DISCARDED AP EVENT TID: {}\n".format(format_time(ap_event['timestamp']), ap_event['tid'])
     for (i, frame) in enumerate(ap_event['frames']):
-        print("  {}: [0x{:x}] {}".format(i, frame['methodId'], frame['symbol']), file=stderr)
+        out += "  {}: [0x{:x}] {}".format(i, frame['methodId'], frame['symbol'])
+        if i > 0:
+            out += "\n"
+    discarded_events_logger.info(out)
 
 def report_event(bpf_event, ap_event):
     out = "=== {} PID: {}, TID: {} ({}), DURATION: {} us\n".format(format_time(bpf_event.timestamp), bpf_event.pid, bpf_event.tid, bpf_event.comm, bpf_event.duration_us)
