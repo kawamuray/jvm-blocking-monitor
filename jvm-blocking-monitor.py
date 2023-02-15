@@ -469,17 +469,25 @@ def sig_handler(signum, frame):
     global terminated
     terminated = True
 
+def main(ap_stream=None):
+    b["events"].open_perf_buffer(print_event)
+    while not terminated:
+        if not pid_alive(args.tgid):
+            print("Quitting by absent target PID: {}".format(args.tgid), file=stderr)
+            exit(1)
+        b.perf_buffer_poll(timeout=100)
+        if ap_stream:
+            event_queues.fill_ap_queue(ap_stream)
+
+        event_queues.sweep()
+
+
 for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
     signal.signal(sig, sig_handler)
 
-with AsyncProfiler(profiler_bin, args.tgid) as ap,\
-     AsyncProfileStream(ap.output_path()) as ap_stream:
-
-     b["events"].open_perf_buffer(print_event)
-     while not terminated:
-         if not pid_alive(args.tgid):
-             print("Quitting by absent target PID: {}".format(args.tgid), file=stderr)
-             exit(1)
-         b.perf_buffer_poll(timeout=100)
-         event_queues.fill_ap_queue(ap_stream)
-         event_queues.sweep()
+if args.kernel_stacks_only:
+    main()
+else:
+    with AsyncProfiler(profiler_bin, args.tgid) as ap, \
+            AsyncProfileStream(ap.output_path()) as ap_stream:
+        main(ap_stream)
