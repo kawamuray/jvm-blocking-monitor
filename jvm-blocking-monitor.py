@@ -88,6 +88,8 @@ parser.add_argument("--state", type=positive_int,
          ") see include/linux/sched.h")
 parser.add_argument("--kernel3x", action="store_true",
                     help="3.x kernel mode. Signal for JVMTI agent will be sent from user process + some kprobe function signature adjust")
+parser.add_argument("--skip-jvm-stack", action="store_true",
+                    help="If this option is specified, jvm-blocking-monitor doesn't start async-profiler. Suitable if you want to run async-profiler externally")
 parser.add_argument("-o", "--output", action="store", default="-",
                     help="Base path of the file to output events")
 parser.add_argument("--discarded-events-output", action="store", default="-",
@@ -485,7 +487,7 @@ def main(ap_stream=None):
 for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
     signal.signal(sig, sig_handler)
 
-if args.kernel_stacks_only:
+if args.skip_jvm_stack:
     main()
 else:
     with AsyncProfiler(profiler_bin, args.tgid) as ap, \
