@@ -471,7 +471,7 @@ def sig_handler(signum, frame):
     global terminated
     terminated = True
 
-def main(ap_stream=None):
+def start_poll(ap_stream=None):
     b["events"].open_perf_buffer(print_event)
     while not terminated:
         if not pid_alive(args.tgid):
@@ -488,8 +488,8 @@ for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
     signal.signal(sig, sig_handler)
 
 if args.skip_jvm_stack:
-    main()
+    start_poll()
 else:
     with AsyncProfiler(profiler_bin, args.tgid) as ap, \
             AsyncProfileStream(ap.output_path()) as ap_stream:
-        main(ap_stream)
+        start_poll(ap_stream)
