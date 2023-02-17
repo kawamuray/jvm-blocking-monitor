@@ -88,6 +88,8 @@ parser.add_argument("--state", type=positive_int,
          ") see include/linux/sched.h")
 parser.add_argument("--kernel3x", action="store_true",
                     help="3.x kernel mode. Signal for JVMTI agent will be sent from user process + some kprobe function signature adjust")
+parser.add_argument("--skip-jvm-stack", action="store_true",
+                    help="If this option is specified, jvm-blocking-monitor doesn't start async-profiler. Suitable if you want to run async-profiler externally")
 parser.add_argument("-o", "--output", action="store", default="-",
                     help="Base path of the file to output events")
 parser.add_argument("--discarded-events-output", action="store", default="-",
@@ -469,17 +471,25 @@ def sig_handler(signum, frame):
     global terminated
     terminated = True
 
+def start_poll(ap_stream=None):
+    b["events"].open_perf_buffer(print_event)
+    while not terminated:
+        if not pid_alive(args.tgid):
+            print("Quitting by absent target PID: {}".format(args.tgid), file=stderr)
+            exit(1)
+        b.perf_buffer_poll(timeout=100)
+        if ap_stream:
+            event_queues.fill_ap_queue(ap_stream)
+
+        event_queues.sweep()
+
+
 for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
     signal.signal(sig, sig_handler)
 
-with AsyncProfiler(profiler_bin, args.tgid) as ap,\
-     AsyncProfileStream(ap.output_path()) as ap_stream:
-
-     b["events"].open_perf_buffer(print_event)
-     while not terminated:
-         if not pid_alive(args.tgid):
-             print("Quitting by absent target PID: {}".format(args.tgid), file=stderr)
-             exit(1)
-         b.perf_buffer_poll(timeout=100)
-         event_queues.fill_ap_queue(ap_stream)
-         event_queues.sweep()
+if args.skip_jvm_stack:
+    start_poll()
+else:
+    with AsyncProfiler(profiler_bin, args.tgid) as ap, \
+            AsyncProfileStream(ap.output_path()) as ap_stream:
+        start_poll(ap_stream)
