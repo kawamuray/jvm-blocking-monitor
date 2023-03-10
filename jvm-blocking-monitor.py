@@ -201,9 +201,9 @@ bpf_text = bpf_text.replace('MAXBLOCK_US_VALUE', str(args.max_block_time))
 bpf_text = bpf_text.replace('FN_ONCPU',
                             "struct rq;\nint oncpu(struct pt_regs *ctx, struct rq *rq, struct task_struct *prev)"
                             if args.kernel3x else
-                            "int oncpu(struct pt_regs *ctx, struct task_struct *prev)");
+                            "int oncpu(struct pt_regs *ctx, struct task_struct *prev)")
 bpf_text = bpf_text.replace('SEND_SIGNAL_TO_TASK',
-                            "" if args.kernel3x else "bpf_send_signal_thread(27)");
+                            "" if args.kernel3x or args.skip_jvm_stack else "bpf_send_signal_thread(27)")
 
 # handle stack args
 kernel_stack_get = "stack_traces.get_stackid(ctx, 0)"
@@ -421,7 +421,7 @@ def print_event(cpu, data, size):
     event = b["events"].event(data)
 
     # Signal target thread for taking call trace
-    if args.kernel3x:
+    if args.kernel3x and not args.skip_jvm_stack:
         # In kernel before 5.x, bpf_send_signal_thread() isn't supported.
         # Send signal from this process instead.
         try:
